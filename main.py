@@ -147,7 +147,6 @@ for epoch in xrange(args.epochs):
 		noise = Variable(torch.randn((args.batch_size, 100))).cuda()
 		fake_noise = Variable(torch.randn((args.batch_size, 100))).cuda()
 
-
 		z = torch.cat((hair_embed_batch, eye_embed_batch, noise), dim=1)
 		fake_z = torch.cat((fake_hair_embed_batch, fake_eye_embed_batch, fake_noise), dim=1)
 
@@ -169,7 +168,7 @@ for epoch in xrange(args.epochs):
 
 		D_res = dis(g_res)
 		D_fake_res = dis(fake_g_res)
-		G_train_loss = -mse_loss(g_res, fake_g_res.detach()) + bce_loss(D_res, y_real_batch) + bce_loss(D_fake_res, y_fake_batch) + mse_loss(g_z, z.detach()) + mse_loss(fake_g_z, fake_z.detach())#- 0.001*conv_edge(g_res)
+		G_train_loss = mse_loss(g_res, img_batch) - mse_loss(g_res, fake_g_res.detach()) + bce_loss(D_res, y_real_batch) + bce_loss(D_fake_res, y_real_batch) + mse_loss(g_z, z.detach()) + mse_loss(fake_g_z, fake_z.detach())
 
 
 		G_train_loss.backward()

@@ -64,8 +64,8 @@ class DCGAN(nn.Module):##generator
 
 		main.add_module('final_layer.deconv',
 		                nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False))  # 5,3,1 for 96x96
-		main.add_module('final_layer.tanh',
-		                nn.Tanh())
+		main.add_module('final_layer.sigmoid',
+		                nn.Sigmoid())
 		# state size. (nc) x 96 x 96
 
 		self.convs = main
