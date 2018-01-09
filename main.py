@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import StepLR
 import torch.nn.functional as F
 from data import data_folder
 import numpy as np
-from net import build_net, Hair_Eye_Embedding, discriminator
+from net import build_net, Hair_Eye_Embedding, discriminator_wgan
 from utils import Config
 import os
 import argparse
@@ -34,7 +34,7 @@ parser.add_argument('--visdom', type=bool, default=True,
 parser.add_argument('--phase', type=str, default="train",
                     help="phase:train or test")
 parser.add_argument('--data_root', type=str, default="data/faces")
-parser.add_argument('--lr', type=float, default=0.0002)
+parser.add_argument('--lr', type=float, default=0.002)
 args = parser.parse_args()
 
 if args.visdom:
@@ -89,15 +89,15 @@ tag_imgs, tags = preprocess(args.data_root)
 train_folder = data_folder(tag_imgs, tags, Config.hair_dim, Config.eyes_dim)
 train_loader = DataLoader(train_folder, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True, drop_last=True)
 
-gen = build_net("DCGAN", nz=500, nc=3, ngf=64, n_extra_layers_g=7).cuda()
+gen = build_net("DCGAN", nz=500, nc=3, ngf=64, n_extra_layers_g=8).cuda()
 embed = Hair_Eye_Embedding(hair_dim = Config.hair_dim, eyes_dim = Config.eyes_dim, embedding_dim = Config.embedding_dim)
-dis = discriminator(3, 64).cuda()
+dis = discriminator_wgan(3, 64).cuda()
 
 bce_loss = BCELoss()
 mse_loss = MSELoss()
 G_optimizer = optim.Adam(gen.parameters(), betas=(0.5, 0.999), lr=args.lr)
 D_optimizer = optim.Adam(dis.parameters(), betas=(0.5, 0.999), lr=args.lr*0.5)
-embed_optimizer = optim.Adam(embed.parameters(), lr=args.lr*0.2, betas=(0.5, 0.999))
+embed_optimizer = optim.Adam(embed.parameters(), lr=args.lr*0.1, betas=(0.5, 0.999))
 
 
 def conv_edge(img_batch):
@@ -117,7 +117,7 @@ total_iter = 0
 sum_d_train_loss = 0
 sum_g_train_loss = 0
 for epoch in xrange(args.epochs):
-	for iteration, (img_batch, hair_batch, eye_batch) in enumerate(train_loader):
+	for iteration, (img_batch, hair_batch, eye_batch, fake_hair_batch, fake_eye_batch) in enumerate(train_loader):
 
 		dis.zero_grad()
 		embed.zero_grad()
@@ -125,6 +125,10 @@ for epoch in xrange(args.epochs):
 		img_batch = Variable(img_batch).cuda()
 		hair_batch = Variable(hair_batch)
 		eye_batch = Variable(eye_batch)
+		fake_hair_batch = Variable(fake_hair_batch)
+		fake_eye_batch = Variable(fake_eye_batch)
+
+
 
 		y_real_batch = Variable(torch.ones(args.batch_size)).cuda()
 		y_fake_batch = Variable(torch.zeros(args.batch_size)).cuda()
@@ -132,29 +136,45 @@ for epoch in xrange(args.epochs):
 		D_real_loss = bce_loss(d_real_res, y_real_batch)
 
 		hair_embed_batch, eye_embed_batch = embed(hair_batch, eye_batch)
+		fake_hair_embed_batch, fake_eye_embed_batch = embed(fake_hair_batch, fake_eye_batch)
 		hair_embed_batch, eye_embed_batch = hair_embed_batch.cuda(), eye_embed_batch.cuda()
+		fake_hair_embed_batch, fake_eye_embed_batch = fake_hair_embed_batch.cuda(), fake_eye_embed_batch.cuda()
+
+
+		embedding_loss = -mse_loss(hair_embed_batch, fake_hair_embed_batch.detach()) - mse_loss(eye_embed_batch, fake_eye_embed_batch.detach())
+		embedding_loss.backward(retain_graph=True)
+
 		noise = Variable(torch.randn((args.batch_size, 100))).cuda()
+		fake_noise = Variable(torch.randn((args.batch_size, 100))).cuda()
+
 
 		z = torch.cat((hair_embed_batch, eye_embed_batch, noise), dim=1)
+		fake_z = torch.cat((fake_hair_embed_batch, fake_eye_embed_batch, fake_noise), dim=1)
 
 		g_res, g_z = gen(z)
+		fake_g_res, fake_g_z = gen(fake_z)
 
 		d_fake_res = dis(g_res.detach())
-		D_fake_loss = bce_loss(d_fake_res, y_fake_batch)
+		d_fake_fake_res = dis(fake_g_res.detach())
+		D_fake_loss = bce_loss(d_fake_res, y_fake_batch) + bce_loss(d_fake_fake_res, y_fake_batch)
 		D_train_loss = D_real_loss + D_fake_loss
 		D_train_loss.backward()
+
 		D_optimizer.step()
 
-
+		##wgan
+		#for p in dis.parameters():
+		#	p.data.clamp_(-0.01, 0.01)
 		gen.zero_grad()
 
 		D_res = dis(g_res)
-
-		G_train_loss = bce_loss(D_res, y_real_batch) + mse_loss(g_z, z.detach()) #- 0.001*conv_edge(g_res)
+		D_fake_res = dis(fake_g_res)
+		G_train_loss = -mse_loss(g_res, fake_g_res.detach()) + bce_loss(D_res, y_real_batch) + bce_loss(D_fake_res, y_fake_batch) + mse_loss(g_z, z.detach()) + mse_loss(fake_g_z, fake_z.detach())#- 0.001*conv_edge(g_res)
 
 
 		G_train_loss.backward()
 		G_optimizer.step()
+
 		embed_optimizer.step()
 		print "Iterations: {}\t discriminator loss:{} \t generator loss:{} \t ".format(iteration + 1,
 

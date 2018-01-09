@@ -4,8 +4,8 @@ import cv2
 import numpy as np
 import PIL.Image as pil_img
 from torchvision.transforms import Compose, ToTensor, Resize
-
-
+import random
+from utils import Config
 class data_folder(Dataset):
 	def __init__(self, imgs, tags, hair_dim, eye_dim):
 		super(data_folder, self).__init__()
@@ -19,7 +19,16 @@ class data_folder(Dataset):
 		])
 	def __getitem__(self, idx):
 		img = self.imgs[idx]
-		tag = self.tags[idx]
+		hair_tag, eye_tag = self.tags[idx]
+		while True:
+			fake_hair_tag = random.randint(0, Config.hair_dim-1)
+			if fake_hair_tag != hair_tag:
+				break
+		while True:
+			fake_eye_tag = random.randint(0, Config.eyes_dim-1)
+			if fake_eye_tag != eye_tag:
+				break
+
 		img = pil_img.open(img)
 		img = self.transforms(img)
 		#hair_vec = torch.zeros(self.hair_dim)
@@ -27,6 +36,6 @@ class data_folder(Dataset):
 		#eye_vec = torch.zeros(self.eye_dim)
 		#eye_vec[tag[1]] = 1
 
-		return img, tag[0], tag[1]
+		return img, hair_tag, eye_tag, fake_hair_tag, fake_eye_tag
 	def __len__(self):
 		return len(self.imgs)

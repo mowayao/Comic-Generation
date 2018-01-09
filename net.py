@@ -118,6 +118,47 @@ class discriminator(nn.Module):
     def forward(self, x):
 		x = self.convs(x)
 		return self.fcs(x.view(-1, 1024))
+class discriminator_wgan(nn.Module):
+    def __init__(self, nc, ndf):
+        super(discriminator_wgan, self).__init__()
+        self.convs = nn.Sequential(
+	        # input is (nc) x 96 x 96
+	        nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+	        nn.LeakyReLU(0.2, inplace=True),
+	        # state size. (ndf) x 32 x 32
+	        nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+	        nn.BatchNorm2d(ndf * 2),
+	        nn.LeakyReLU(0.2, inplace=True),
+	        # state size. (ndf*2) x 16 x 16
+	        nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+	        nn.BatchNorm2d(ndf * 4),
+	        nn.LeakyReLU(0.2, inplace=True),
+	        # state size. (ndf*4) x 8 x 8
+	        nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
+	        nn.BatchNorm2d(ndf * 8),
+	        nn.LeakyReLU(0.2, inplace=True),
+	        # state size. (ndf*8) x 4 x 4
+	        nn.Conv2d(ndf * 8, 1024, 4, 2, 1, bias=False),
+	        nn.LeakyReLU(inplace=True),
+	        nn.Dropout(0.5),
+	        nn.Conv2d(1024, 1024, 3, 2, 1, bias=False),
+	        nn.LeakyReLU(inplace=True),
+	        nn.Dropout(0.5),
+	        # state size. 1024 x 1 x 1
+        )
+        self.fcs = nn.Sequential(
+	        nn.Linear(1024, 1024),
+	        nn.LeakyReLU(inplace=True),
+	        nn.Dropout(0.5),
+	        nn.Linear(1024, 1),
+	        nn.Sigmoid()
+        )
+    # weight_init
+
+    # forward method
+    def forward(self, x):
+		x = self.convs(x)
+		return self.fcs(x.view(-1, 1024))
 class WGAN(nn.Module):
 	def __init__(self):
 		super(WGAN, self).__init__()
