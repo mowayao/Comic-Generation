@@ -65,6 +65,12 @@ if args.visdom:
 		opts=dict(title='Original')
 	)
 
+def conv_edge(img_batch):
+	filters = Variable(torch.FloatTensor([[[1, -1]]])).cuda()
+	return torch.sum(torch.mean(torch.abs(F.conv2d(img_batch[:, 0, :, :].unsqueeze(dim=1), filters)), dim=0)) + \
+		   torch.sum(torch.mean(torch.abs(F.conv2d(img_batch[:, 1, :, :].unsqueeze(dim=1), filters)), dim=0)) + \
+		   torch.sum(torch.mean(torch.abs(F.conv2d(img_batch[:, 2, :, :].unsqueeze(dim=1), filters)), dim=0))
+
 def preprocess(data_root):
 	tag_words = np.load("my_tags_word.npy")
 	hair_dict = pickle.load(open("hair_dict", "rb"))
@@ -93,8 +99,8 @@ eyes_onehot = torch.zeros(11, 11)
 eyes_onehot = eyes_onehot.scatter_(1, torch.LongTensor(list(range(11))).view(11,1), 1).view(11, 11, 1, 1)
 
 
-gen = build_net("DCGAN", nz=123, nc=3, ngf=64).cuda()
-#embed = Hair_Eye_Embedding(hair_dim = cfg.hair_dim, eyes_dim = cfg.eyes_dim, embedding_dim = cfg.embedding_dim).cuda()
+gen = build_net("DCGAN", nz=500, nc=3, ngf=64).cuda()
+embed = Hair_Eye_Embedding(hair_dim = cfg.hair_dim, eyes_dim = cfg.eyes_dim, embedding_dim = cfg.embedding_dim).cuda()
 dis = discriminator_wgan(3, 64).cuda()
 
 train_dis_meter_loss = tnt.meter.AverageValueMeter()
@@ -124,8 +130,16 @@ for epoch in range(args.epochs):
 
 
 		img_batch = Variable(img_batch).cuda()
-		true_label = Variable(torch.cat([hair_onehot[hair_batch], eyes_onehot[eye_batch]], 1)).cuda()
-		fake_label = Variable(torch.cat([hair_onehot[fake_hair_batch], eyes_onehot[eye_batch]], 1)).cuda()
+
+		hair_batch = Variable(hair_batch.long()).cuda()
+		eye_batch = Variable(eye_batch.long()).cuda()
+		fake_hair_batch = Variable(fake_hair_batch.long()).cuda()
+		fake_eye_batch = Variable(fake_eye_batch.long()).cuda()
+		real_hair_embed, real_eyes_embed = embed(hair_batch.long(), eye_batch.long())
+		fake_hair_embed, fake_eyes_embed = embed(fake_hair_batch.long(), fake_eye_batch.long())
+
+		true_label = torch.cat([real_hair_embed, real_eyes_embed], 1)
+		fake_label = torch.cat([fake_hair_embed, fake_eyes_embed], 1)
 
 		y_real_batch = Variable(torch.ones(args.batch_size)).cuda()
 		y_fake_batch = Variable(torch.zeros(args.batch_size)).cuda()
@@ -157,20 +171,24 @@ for epoch in range(args.epochs):
 		d_fake_res1 = dis(x_wrong, true_label)  # (real img, right text): 1
 		d_loss4 = bce_loss(d_fake_res1, y_fake_batch)  # wrong picture & real label
 
-		D_train_loss = d_loss1 + d_loss2 + d_loss3# + d_loss4
+		D_train_loss = d_loss1 + d_loss2 + d_loss3 + d_loss4
 		D_train_loss.backward()
 
 		D_optimizer.step()
 		###
 		for _ in range(5):
 			gen.zero_grad()
+			real_hair_embed, real_eyes_embed = embed(hair_batch.long(), eye_batch.long())
+			fake_hair_embed, fake_eyes_embed = embed(fake_hair_batch.long(), fake_eye_batch.long())
+			true_label = torch.cat([real_hair_embed, real_eyes_embed], 1)
+			fake_label = torch.cat([fake_hair_embed, fake_eyes_embed], 1)
 			real_z = torch.cat((true_label, noise), dim=1)
-			#fake_z = torch.cat((fake_label, noise), dim=1)
+			fake_z = torch.cat((fake_label, noise), dim=1)
 			real_g_res = gen(real_z)
-			#fake_g_res = gen(fake_z)
+			fake_g_res = gen(fake_z)
 			D_res = dis(real_g_res, true_label)
-			#D_fake_res = dis(fake_g_res, fake_label)
-			G_train_loss = bce_loss(D_res, y_real_batch) #+ mse_loss(real_g_res, img_batch)# + bce_loss(D_res, y_real_batch) + \
+			D_fake_res = dis(fake_g_res, fake_label)
+			G_train_loss = bce_loss(D_res, y_real_batch) + bce_loss(D_fake_res, y_fake_batch) + mse_loss(real_g_res, img_batch) #+ 0.1*conv_edge(g_res)# + bce_loss(D_res, y_real_batch) + \
 
 			all_loss = G_train_loss
 			all_loss.backward()

@@ -10,7 +10,8 @@ class Hair_Eye_Embedding(nn.Module):
 	def forward(self, hair, eyes):
 		hair = self.hair_embed(hair)
 		eyes = self.eye_embed(eyes)
-		return hair, eyes
+		b, c = hair.size()
+		return hair.view(b, c, 1, 1), eyes.view(b, c, 1, 1)
 class DCGAN(nn.Module):##generator
 	def __init__(self, nz, nc, ngf):
 		super(DCGAN, self).__init__()
@@ -106,7 +107,7 @@ class discriminator_wgan(nn.Module):
 	        # state size. 1024 x 1 x 1
         )
 		self.combine_conv = nn.Sequential(
-			nn.Conv2d(ndf * 8 + 23, ndf * 8, 4, 1, 0),
+			nn.Conv2d(ndf * 8 + 400, ndf * 8, 4, 1, 0),
 			nn.BatchNorm2d(ndf * 8),
 			nn.LeakyReLU(0.2, inplace=True)
 		)
@@ -120,7 +121,7 @@ class discriminator_wgan(nn.Module):
 		b = x.size(0)
 		x = self.convs(x)
 
-		label = label.expand(b, 23, x.size()[-1], x.size()[-1])
+		label = label.expand(b, 400, x.size()[-1], x.size()[-1])
 		x = torch.cat((x, label), dim=1)
 		x = self.combine_conv(x)
 		return self.fc(x.view(b, -1))
